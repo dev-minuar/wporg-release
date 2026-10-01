@@ -18,6 +18,11 @@ on:
         type: boolean
         required: false
         default: false
+      environment:
+        description: 'GitHub environment that must approve the publish step (empty = no approval)'
+        type: string
+        required: false
+        default: 'wordpress-org'
       plugin-check:
         description: 'Run Plugin Check on the distributable files'
         type: boolean
@@ -185,6 +190,8 @@ jobs:
   deploy:
     needs: checks
     runs-on: ubuntu-latest
+    # Real publishes wait for a reviewer of this environment; dry runs skip the gate.
+    environment: ${{ !inputs.dry-run && inputs.environment || '' }}
     # svn install 5 + deploy 20 + wait 30 = 55, plus 10 margin
     timeout-minutes: 65
     steps:

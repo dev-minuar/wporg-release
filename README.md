@@ -70,6 +70,18 @@ gh secret set SVN_USERNAME --repo OWNER/PLUGIN --body minuar
 security find-generic-password -a minuar -s '<https://plugins.svn.wordpress.org:443> Use your WordPress.org login' -w | gh secret set SVN_PASSWORD --repo OWNER/PLUGIN
 ```
 
+## One-time approval gate
+
+Real publishes wait for a person to approve them. Create the `wordpress-org` environment in each plugin repository with yourself as required reviewer:
+
+```bash
+gh api -X PUT repos/OWNER/PLUGIN/environments/wordpress-org --input - <<JSON
+{"reviewers":[{"type":"User","id":$(gh api users/YOUR-LOGIN --jq .id)}],"prevent_self_review":false}
+JSON
+```
+
+After the checks pass, the deploy job shows "Waiting for review". Approve it on the run page (Review deployments), or with `gh run view RUN --repo OWNER/PLUGIN` and the link it prints. The readme/assets workflow waits for the same approval. Dry runs skip the gate. Without the environment, GitHub creates it on the first run with no reviewer, so nothing waits: set it up before the first release.
+
 ## Release
 
 Preconditions:
@@ -90,7 +102,7 @@ The tag name without the leading `v` is the version. For a manual run, use the `
 
 Open the Actions tab, choose "WordPress.org readme and assets", then Run workflow. From the terminal: `gh workflow run wporg-assets.yml`.
 
-Warning: this publishes the readme and assets from `main` to WordPress.org immediately.
+Warning: once approved, this publishes the readme and assets from `main` to WordPress.org immediately.
 
 ## Checks in deploy.yml
 
@@ -111,9 +123,9 @@ Every action is pinned to a full commit SHA with its version in a trailing comme
 
 ## Inputs
 
-`deploy.yml`: `version` (default: tag without `v`), `slug` (default: repository name), `dry-run` (default false), `plugin-check` (default true). Secrets `SVN_USERNAME` and `SVN_PASSWORD` are declared optional, but the deploy job fails without them, also on a dry run.
+`deploy.yml`: `version` (default: tag without `v`), `slug` (default: repository name), `dry-run` (default false), `plugin-check` (default true), `environment` (default `wordpress-org`; empty means no approval). Secrets `SVN_USERNAME` and `SVN_PASSWORD` are declared optional, but the deploy job fails without them, also on a dry run.
 
-`assets.yml`: `slug` (default: repository name). Both secrets are required.
+`assets.yml`: `slug` (default: repository name), `environment` (default `wordpress-org`). Both secrets are required.
 
 ## License
 

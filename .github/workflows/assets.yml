@@ -8,6 +8,11 @@ on:
         type: string
         required: false
         default: ''
+      environment:
+        description: 'GitHub environment that must approve the publish step (empty = no approval)'
+        type: string
+        required: false
+        default: 'wordpress-org'
     secrets:
       SVN_USERNAME:
         required: true
@@ -24,6 +29,8 @@ concurrency:
 jobs:
   assets:
     runs-on: ubuntu-latest
+    # The readme/assets sync publishes immediately, so it waits for a reviewer too.
+    environment: ${{ inputs.environment }}
     # svn install 5 + tag check 2 + 10up 15 = 22, plus margin
     timeout-minutes: 30
     steps:
