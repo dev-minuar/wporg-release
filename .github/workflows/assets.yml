@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: wporg-${{ github.repository }}-${{ github.workflow }}
+  group: wporg-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
