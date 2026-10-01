@@ -34,37 +34,59 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Resolve version and slug
         id: meta
         shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_SLUG: ${{ inputs.slug }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
           set -euo pipefail
-          version="${{ inputs.version }}"
+          version="$INPUT_VERSION"
           if [ -z "$version" ]; then
             version="${GITHUB_REF_NAME#v}"
           fi
-          slug="${{ inputs.slug }}"
+          slug="$INPUT_SLUG"
           if [ -z "$slug" ]; then
             slug="${GITHUB_REPOSITORY#*/}"
           fi
+          if ! [[ "$version" =~ ^[0-9A-Za-z.+-]+$ ]]; then
+            echo "::error::Invalid version '$version'. Allowed characters: letters, digits, dot, plus, hyphen."
+            exit 1
+          fi
+          if ! [[ "$slug" =~ ^[a-z0-9-]+$ ]]; then
+            echo "::error::Invalid slug '$slug'. Allowed characters: lowercase letters, digits, hyphen."
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "slug=$slug" >> "$GITHUB_OUTPUT"
-          echo "Deploying $slug $version (dry run: ${{ inputs.dry-run }})"
+          echo "Deploying $slug $version (dry run: $DRY_RUN)"
 
       - name: Check version numbers match
         shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          version="${{ steps.meta.outputs.version }}"
-          main_file="$(grep -l -E '^[[:space:]/*#]*Plugin Name:' ./*.php | head -n 1)"
+          version="$VERSION"
+          main_file="$(grep -l -E '^[[:space:]/*#]*Plugin Name:' ./*.php | head -n 1 || true)"
           if [ -z "$main_file" ]; then
             echo "::error::No PHP file with a 'Plugin Name:' header in the repository root."
             exit 1
           fi
-          header="$(grep -m 1 -E '^[[:space:]/*#]*Version:' "$main_file" | sed -E 's/.*Version:[[:space:]]*//' | tr -d '\r[:space:]')"
-          stable="$(grep -m 1 -i -E '^Stable tag:' readme.txt | sed -E 's/^[Ss]table [Tt]ag:[[:space:]]*//' | tr -d '\r[:space:]')"
+          header="$(grep -m 1 -E '^[[:space:]/*#]*Version:' "$main_file" | sed -E 's/.*Version:[[:space:]]*//' | tr -d '\r[:space:]' || true)"
+          stable="$(grep -m 1 -i -E '^Stable tag:' readme.txt | sed -E 's/^[Ss]table [Tt]ag:[[:space:]]*//' | tr -d '\r[:space:]' || true)"
+          if [ -z "$header" ]; then
+            echo "::error::No 'Version:' header found in $main_file."
+            exit 1
+          fi
+          if [ -z "$stable" ]; then
+            echo "::error::No 'Stable tag:' line found in readme.txt."
+            exit 1
+          fi
           echo "Tag: $version | $main_file Version: $header | readme Stable tag: $stable"
           if [ "$version" != "$header" ] || [ "$version" != "$stable" ]; then
             echo "::error::Version mismatch: tag $version, plugin header $header, readme Stable tag $stable."
@@ -89,7 +111,7 @@ jobs:
             exit 0
           fi
           enc="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$raw")"
-          curl -s "https://wordpress.org/plugins/developers/readme-validator/?readme=${enc}" -o /tmp/validator.html
+          curl -fsS --retry 3 "https://wordpress.org/plugins/developers/readme-validator/?readme=${enc}" -o /tmp/validator.html
           python3 - <<'PY'
           import html, re, sys
           page = open('/tmp/validator.html', encoding='utf-8').read()
@@ -109,19 +131,21 @@ jobs:
       - name: Build distributable copy
         if: ${{ inputs.plugin-check }}
         shell: bash
+        env:
+          SLUG: ${{ steps.meta.outputs.slug }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/dist
           if [ -f .distignore ]; then
-            rsync -a --exclude-from=.distignore --exclude=.git ./ "/tmp/dist/${{ steps.meta.outputs.slug }}/"
+            rsync -a --exclude-from=.distignore --exclude=.git ./ "/tmp/dist/$SLUG/"
           else
-            rsync -a --exclude=.git --exclude=.github ./ "/tmp/dist/${{ steps.meta.outputs.slug }}/"
+            rsync -a --exclude=.git --exclude=.github ./ "/tmp/dist/$SLUG/"
           fi
           rm -rf "./.wporg-dist" && mv /tmp/dist "./.wporg-dist"
 
       - name: Plugin Check
         if: ${{ inputs.plugin-check }}
-        uses: WordPress/plugin-check-action@v1
+        uses: WordPress/plugin-check-action@10857da14b6c2246d15402b3e69f777edcf8c12e # v1.1.9
         with:
           build-dir: './.wporg-dist/${{ steps.meta.outputs.slug }}'
           ignore-warnings: 'true'
@@ -129,10 +153,17 @@ jobs:
       - name: Remove distributable copy
         if: ${{ always() && inputs.plugin-check }}
         shell: bash
-        run: rm -rf ./.wporg-dist
+        run: |
+          rm -rf ./.wporg-dist
+          # Plugin Check writes .wp-env.json into the workspace root.
+          if git ls-files --error-unmatch .wp-env.json >/dev/null 2>&1; then
+            git checkout -- .wp-env.json
+          else
+            rm -f .wp-env.json
+          fi
 
       - name: Deploy to WordPress.org
-        uses: 10up/action-wordpress-plugin-deploy@stable
+        uses: 10up/action-wordpress-plugin-deploy@54bd289b8525fd23a5c365ec369185f2966529c2 # 2.3.0
         with:
           dry-run: ${{ inputs.dry-run }}
         env:
@@ -144,9 +175,12 @@ jobs:
       - name: Wait until WordPress.org serves the new version
         if: ${{ !inputs.dry-run }}
         shell: bash
+        env:
+          SLUG: ${{ steps.meta.outputs.slug }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          slug="${{ steps.meta.outputs.slug }}"; version="${{ steps.meta.outputs.version }}"
+          slug="$SLUG"; version="$VERSION"
           for _ in $(seq 1 60); do
             live="$(curl -s "https://api.wordpress.org/plugins/info/1.2/?action=plugin_information&request%5Bslug%5D=${slug}&nocache=${RANDOM}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)"
             if [ "$live" = "$version" ]; then

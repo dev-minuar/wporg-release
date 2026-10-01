@@ -57,7 +57,7 @@ jobs:
 
 `secrets: inherit` across repositories works only when caller and this repository belong to the same organization. Otherwise pass `SVN_USERNAME` and `SVN_PASSWORD` under `secrets:` by name.
 
-Put banners, icons and screenshots in `.wordpress-org/` and list `.wordpress-org` and `.wporg-dist` in `.distignore`.
+Put banners, icons and screenshots in `.wordpress-org/` and list `.wordpress-org`, `.wporg-dist` and `.wp-env.json` in `.distignore`.
 
 ## One-time secret setup
 
@@ -91,6 +91,10 @@ Warning: this publishes the readme and assets from `main` to WordPress.org immed
 3. Readme validator. The WordPress.org online validator must report no Fatal or Warnings lines. A private repository skips this check with a warning.
 4. Plugin Check. The files that `.distignore` keeps run through WordPress Plugin Check. Warnings are ignored; errors fail the job. Set `plugin-check: false` to skip.
 5. Dry run. With `dry-run: true` every step runs except the SVN commit and the wait for WordPress.org.
+
+## Action pins
+
+Every action is pinned to a full commit SHA with its version in a trailing comment. To bump a pin, resolve the new tag with `gh api repos/OWNER/REPO/git/ref/tags/TAG --jq .object.sha` (for an annotated tag, read the commit through `git/tags/SHA`), replace the SHA and the comment, run `actionlint`, then move the `v1` tag.
 
 ## Inputs
 

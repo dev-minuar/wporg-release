@@ -19,18 +19,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Resolve slug
         id: meta
         shell: bash
+        env:
+          INPUT_SLUG: ${{ inputs.slug }}
         run: |
-          slug="${{ inputs.slug }}"
+          set -euo pipefail
+          slug="$INPUT_SLUG"
           if [ -z "$slug" ]; then slug="${GITHUB_REPOSITORY#*/}"; fi
+          if ! [[ "$slug" =~ ^[a-z0-9-]+$ ]]; then
+            echo "::error::Invalid slug '$slug'. Allowed characters: lowercase letters, digits, hyphen."
+            exit 1
+          fi
           echo "slug=$slug" >> "$GITHUB_OUTPUT"
 
       - name: Push readme and assets to WordPress.org
-        uses: 10up/action-wordpress-plugin-asset-update@stable
+        uses: 10up/action-wordpress-plugin-asset-update@2480306f6f693672726d08b5917ea114cb2825f7 # 2.2.0
         env:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
