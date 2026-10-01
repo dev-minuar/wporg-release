@@ -1,0 +1,38 @@
+name: Update WordPress.org readme and assets
+
+on:
+  workflow_call:
+    inputs:
+      slug:
+        description: 'WordPress.org plugin slug (defaults to the repository name)'
+        type: string
+        required: false
+        default: ''
+    secrets:
+      SVN_USERNAME:
+        required: true
+      SVN_PASSWORD:
+        required: true
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve slug
+        id: meta
+        shell: bash
+        run: |
+          slug="${{ inputs.slug }}"
+          if [ -z "$slug" ]; then slug="${GITHUB_REPOSITORY#*/}"; fi
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+
+      - name: Push readme and assets to WordPress.org
+        uses: 10up/action-wordpress-plugin-asset-update@stable
+        env:
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+          SLUG: ${{ steps.meta.outputs.slug }}
+          IGNORE_OTHER_FILES: true

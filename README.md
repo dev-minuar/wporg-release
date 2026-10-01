@@ -1,0 +1,103 @@
+# wporg-release
+
+Reusable GitHub workflows that publish a WordPress plugin to WordPress.org. They wrap the 10up SVN actions and add checks before anything reaches SVN.
+
+## Workflows
+
+1. `deploy.yml` checks the plugin, then commits `trunk` and a tag to WordPress.org SVN and waits until WordPress.org serves the new version.
+2. `assets.yml` pushes `readme.txt` and the `.wordpress-org` folder (banners, icons, screenshots) to SVN without a release.
+
+Both run as `@v1`.
+
+## Set up a plugin repository
+
+Copy these two files into the plugin repository.
+
+`.github/workflows/wporg-deploy.yml`:
+
+```yaml
+name: WordPress.org deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g. 1.1.0)'
+        required: true
+      dry-run:
+        description: 'Dry run (no SVN commit)'
+        type: boolean
+        default: true
+
+jobs:
+  deploy:
+    uses: dev-minuar/wporg-release/.github/workflows/deploy.yml@v1
+    with:
+      version: ${{ inputs.version || '' }}
+      dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
+    secrets: inherit
+```
+
+`.github/workflows/wporg-assets.yml`:
+
+```yaml
+name: WordPress.org readme and assets
+
+on:
+  workflow_dispatch:
+
+jobs:
+  assets:
+    uses: dev-minuar/wporg-release/.github/workflows/assets.yml@v1
+    secrets: inherit
+```
+
+`secrets: inherit` across repositories works only when caller and this repository belong to the same organization. Otherwise pass `SVN_USERNAME` and `SVN_PASSWORD` under `secrets:` by name.
+
+Put banners, icons and screenshots in `.wordpress-org/` and list `.wordpress-org` and `.wporg-dist` in `.distignore`.
+
+## One-time secret setup
+
+The SVN password is the WordPress.org SVN password, not the login password. Set both secrets once per plugin repository. The password is piped from the macOS keychain, so it never appears on a command line:
+
+```bash
+gh secret set SVN_USERNAME --repo OWNER/PLUGIN --body minuar
+security find-generic-password -a minuar -s '<https://plugins.svn.wordpress.org:443> Use your WordPress.org login' -w | gh secret set SVN_PASSWORD --repo OWNER/PLUGIN
+```
+
+## Release
+
+Bump `Version:` in the main plugin file and `Stable tag:` in `readme.txt`, commit, then:
+
+```bash
+git tag vX.Y.Z && git push origin vX.Y.Z
+```
+
+The tag name without the leading `v` is the version. For a manual run, use the `version` input as it is (no `v`).
+
+## Update readme and assets only
+
+Open the Actions tab, choose "WordPress.org readme and assets", then Run workflow. From the terminal: `gh workflow run wporg-assets.yml`.
+
+Warning: this publishes the readme and assets from `main` to WordPress.org immediately.
+
+## Checks in deploy.yml
+
+1. Version match. The tag version, the `Version:` header of the main plugin file, and `Stable tag:` in `readme.txt` must be equal. A mismatch fails the job before any SVN step.
+2. PHP syntax. Every `.php` file outside `vendor` and `node_modules` must pass `php -l`.
+3. Readme validator. The WordPress.org online validator must report no Fatal or Warnings lines. A private repository skips this check with a warning.
+4. Plugin Check. The files that `.distignore` keeps run through WordPress Plugin Check. Warnings are ignored; errors fail the job. Set `plugin-check: false` to skip.
+5. Dry run. With `dry-run: true` every step runs except the SVN commit and the wait for WordPress.org.
+
+## Inputs
+
+`deploy.yml`: `version` (default: tag without `v`), `slug` (default: repository name), `dry-run` (default false), `plugin-check` (default true). Secrets `SVN_USERNAME` and `SVN_PASSWORD` are optional so dry runs work without them.
+
+`assets.yml`: `slug` (default: repository name). Both secrets are required.
+
+## License
+
+MIT.
