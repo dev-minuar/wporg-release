@@ -59,6 +59,8 @@ jobs:
 
 Put banners, icons and screenshots in `.wordpress-org/` and list `.wordpress-org`, `.wporg-dist` and `.wp-env.json` in `.distignore`.
 
+Warning: rsync excludes match at any depth. Anchor entries that apply only to the repository root with a leading `/` (`/vendor`, `/node_modules`, `/docs`). An unanchored `vendor` also removes `assets/vendor/` from the package and deletes it from SVN trunk.
+
 ## One-time secret setup
 
 The SVN password is the WordPress.org SVN password, not the login password. Set both secrets once per plugin repository. The password is piped from the macOS keychain, so it never appears on a command line:

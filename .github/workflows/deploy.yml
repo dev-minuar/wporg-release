@@ -32,6 +32,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -145,6 +146,7 @@ jobs:
 
       - name: Plugin Check
         if: ${{ inputs.plugin-check }}
+        timeout-minutes: 20
         uses: WordPress/plugin-check-action@10857da14b6c2246d15402b3e69f777edcf8c12e # v1.1.9
         with:
           build-dir: './.wporg-dist/${{ steps.meta.outputs.slug }}'
@@ -163,6 +165,7 @@ jobs:
           fi
 
       - name: Deploy to WordPress.org
+        timeout-minutes: 20
         uses: 10up/action-wordpress-plugin-deploy@54bd289b8525fd23a5c365ec369185f2966529c2 # 2.3.0
         with:
           dry-run: ${{ inputs.dry-run }}
