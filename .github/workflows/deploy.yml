@@ -29,10 +29,22 @@ on:
       SVN_PASSWORD:
         required: false
 
+permissions:
+  contents: read
+
+concurrency:
+  group: wporg-${{ github.repository }}-${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
-  deploy:
+  # No secrets in this job. It runs third-party code (Plugin Check, wp-env, npm).
+  checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Plugin Check 20 + other steps (checkout, lint, validator, build) 15 margin
+    timeout-minutes: 35
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      slug: ${{ steps.meta.outputs.slug }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -65,6 +77,15 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "slug=$slug" >> "$GITHUB_OUTPUT"
           echo "Deploying $slug $version (dry run: $DRY_RUN)"
+
+      - name: Require .distignore
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f .distignore ]; then
+            echo "::error::No .distignore in the repository root. Without it 10up builds the package from .gitattributes and Plugin Check would check different files than ship. Add a .distignore."
+            exit 1
+          fi
 
       - name: Check version numbers match
         shell: bash
@@ -137,11 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/dist
-          if [ -f .distignore ]; then
-            rsync -a --exclude-from=.distignore --exclude=.git ./ "/tmp/dist/$SLUG/"
-          else
-            rsync -a --exclude=.git --exclude=.github ./ "/tmp/dist/$SLUG/"
-          fi
+          rsync -a --exclude-from=.distignore --exclude=.git ./ "/tmp/dist/$SLUG/"
           rm -rf "./.wporg-dist" && mv /tmp/dist "./.wporg-dist"
 
       - name: Plugin Check
@@ -164,6 +181,23 @@ jobs:
             rm -f .wp-env.json
           fi
 
+  # Fresh runner. The SVN secrets exist only in the 10up step's env below.
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    # svn install 5 + deploy 20 + wait 30 = 55, plus 10 margin
+    timeout-minutes: 65
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install svn
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v svn >/dev/null 2>&1 || sudo apt-get install -y -o Acquire::Retries=3 subversion
+
       - name: Deploy to WordPress.org
         timeout-minutes: 20
         uses: 10up/action-wordpress-plugin-deploy@54bd289b8525fd23a5c365ec369185f2966529c2 # 2.3.0
@@ -172,15 +206,15 @@ jobs:
         env:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
-          SLUG: ${{ steps.meta.outputs.slug }}
-          VERSION: ${{ steps.meta.outputs.version }}
+          SLUG: ${{ needs.checks.outputs.slug }}
+          VERSION: ${{ needs.checks.outputs.version }}
 
       - name: Wait until WordPress.org serves the new version
         if: ${{ !inputs.dry-run }}
         shell: bash
         env:
-          SLUG: ${{ steps.meta.outputs.slug }}
-          VERSION: ${{ steps.meta.outputs.version }}
+          SLUG: ${{ needs.checks.outputs.slug }}
+          VERSION: ${{ needs.checks.outputs.version }}
         run: |
           set -euo pipefail
           slug="$SLUG"; version="$VERSION"

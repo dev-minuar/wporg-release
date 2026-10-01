@@ -14,10 +14,18 @@ on:
       SVN_PASSWORD:
         required: true
 
+permissions:
+  contents: read
+
+concurrency:
+  group: wporg-${{ github.repository }}-${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   assets:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # svn install 5 + tag check 2 + 10up 15 = 22, plus margin
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -37,7 +45,33 @@ jobs:
           fi
           echo "slug=$slug" >> "$GITHUB_OUTPUT"
 
+      - name: Install svn
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v svn >/dev/null 2>&1 || sudo apt-get install -y -o Acquire::Retries=3 subversion
+
+      - name: Require the Stable tag to exist on WordPress.org
+        timeout-minutes: 2
+        shell: bash
+        env:
+          SLUG: ${{ steps.meta.outputs.slug }}
+        run: |
+          set -euo pipefail
+          STABLE="$(grep -m 1 -i -E '^Stable tag:' readme.txt | sed -E 's/^[Ss]table [Tt]ag:[[:space:]]*//' | tr -d '\r[:space:]' || true)"
+          if ! [[ "$STABLE" =~ ^[0-9A-Za-z.+-]+$ ]]; then
+            echo "::error::Invalid or missing 'Stable tag:' in readme.txt ('$STABLE')."
+            exit 1
+          fi
+          if ! svn ls "https://plugins.svn.wordpress.org/${SLUG}/tags/${STABLE}/" >/dev/null 2>&1; then
+            echo "::error::tags/$STABLE does not exist on WordPress.org yet. Deploy the release (push the vX.Y.Z tag) before syncing the readme."
+            exit 1
+          fi
+          echo "tags/$STABLE exists on WordPress.org."
+
       - name: Push readme and assets to WordPress.org
+        timeout-minutes: 15
         uses: 10up/action-wordpress-plugin-asset-update@2480306f6f693672726d08b5917ea114cb2825f7 # 2.2.0
         env:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}

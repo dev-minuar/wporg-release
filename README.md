@@ -72,6 +72,12 @@ security find-generic-password -a minuar -s '<https://plugins.svn.wordpress.org:
 
 ## Release
 
+Preconditions:
+
+1. The plugin repository has a `.distignore` in its root. The deploy fails early without it, because 10up would otherwise build the package from `.gitattributes` and Plugin Check would check different files than ship.
+2. Do not run the assets workflow between the version bump commit and the tag push. The assets workflow now fails when `tags/<Stable tag>` does not exist on WordPress.org, but run the deploy first anyway.
+3. The repository has the secrets `SVN_USERNAME` and `SVN_PASSWORD`. The deploy job needs them even for a dry run.
+
 Bump `Version:` in the main plugin file and `Stable tag:` in `readme.txt`, commit, then:
 
 ```bash
@@ -92,7 +98,12 @@ Warning: this publishes the readme and assets from `main` to WordPress.org immed
 2. PHP syntax. Every `.php` file outside `vendor` and `node_modules` must pass `php -l`.
 3. Readme validator. The WordPress.org online validator must report no Fatal or Warnings lines. A private repository skips this check with a warning.
 4. Plugin Check. The files that `.distignore` keeps run through WordPress Plugin Check. Warnings are ignored; errors fail the job. Set `plugin-check: false` to skip.
-5. Dry run. With `dry-run: true` every step runs except the SVN commit and the wait for WordPress.org.
+5. `.distignore`. The file must exist. The job fails early without it.
+6. Dry run. With `dry-run: true` every step runs except the SVN commit and the wait for WordPress.org. The 10up step still needs `SVN_USERNAME` and `SVN_PASSWORD` and fails without them, so a dry run without secrets passes the checks job and fails the deploy job.
+
+`deploy.yml` has two jobs. Job `checks` (steps 1 to 5 and Plugin Check) holds no secrets, because it runs third-party code. Job `deploy` runs on a fresh runner after `checks` passes, and only the 10up step receives the secrets.
+
+`assets.yml` reads `Stable tag:` from `readme.txt` and fails unless `tags/<Stable tag>` exists on WordPress.org.
 
 ## Action pins
 
@@ -100,7 +111,7 @@ Every action is pinned to a full commit SHA with its version in a trailing comme
 
 ## Inputs
 
-`deploy.yml`: `version` (default: tag without `v`), `slug` (default: repository name), `dry-run` (default false), `plugin-check` (default true). Secrets `SVN_USERNAME` and `SVN_PASSWORD` are optional so dry runs work without them.
+`deploy.yml`: `version` (default: tag without `v`), `slug` (default: repository name), `dry-run` (default false), `plugin-check` (default true). Secrets `SVN_USERNAME` and `SVN_PASSWORD` are declared optional, but the deploy job fails without them, also on a dry run.
 
 `assets.yml`: `slug` (default: repository name). Both secrets are required.
 
